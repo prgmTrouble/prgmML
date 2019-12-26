@@ -11,7 +11,7 @@ import com.prgmtrouble.ml.prgmML.generic.Parameter;
  * An object that stores and executes operations on an array of data.
  * This object does not rely on an internal container to manage data;
  * it relies on the input to provide data and then stores it in order
- * to make pruning operations efficient at the top-level.
+ * to make the class more flexible.
  * 
  * @author prgmTrouble
  */

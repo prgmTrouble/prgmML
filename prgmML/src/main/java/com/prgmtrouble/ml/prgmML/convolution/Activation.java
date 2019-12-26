@@ -18,15 +18,21 @@ import com.prgmtrouble.ml.prgmML.math.Vector;
  * 
  * @author prgmTrouble
  */
-public class Activation implements Serializable,ConvolutionLayer {
+public class Activation implements Serializable, ConvolutionLayer {
 	/***/
 	private static final long serialVersionUID = 1L;
 	
+	/**Vector which holds the activation function.*/
 	private final Vector act;
+	/**Convolutional filters.*/
 	private Filter[] filters;
+	/**Output parameters.*/
 	private Parameter<ListOfTypes> out;
+	/**Learning rate.*/
 	private double lr = 0.1;
+	/**Forward hyperparameters.*/
 	private int[] fwd;
+	/**Backward hyperparameters.*/
 	private int[] bkwd;
 	
 	/**
@@ -175,7 +181,8 @@ public class Activation implements Serializable,ConvolutionLayer {
 		double[] nloss = (double[]) loss.getValues()[0];
 		if(step > 1)
 			nloss = Tensor.dilate(nloss, lossSize, channels, step - 1);
-		final int nis = lossSize + (lossSize - 1) * (step - 1);
+		final int nis = lossSize + (lossSize - 1) * (step - 1),
+				  ispad = inputSize + 2 * pad; //TODO include padding?
 		double[] df = Tensor.scale(Tensor.convolve((double[]) out.getValues()[0], inputSize, nloss, nis, channels, 1, pad), learningRate);
 		double[] di = new double[inputSize * inputSize * channels];
 		for(Filter f : filters) {

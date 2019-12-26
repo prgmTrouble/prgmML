@@ -11,15 +11,21 @@ public final class Tensor {
 	 * @return Flattened and dilated matrix.
 	 */
 	public static double[] dilate(double[] in, int is, int c, int factor) {
-		final int ns  = (is - 1) * factor,
-				  nsq = ns * ns,
-				  isq = is * is;
-		final double[] out = new double[c * nsq];
-		for(int ch = 0; ch < c; ch++)
-			for(int ir = 0, nr = 0; ir < is; ir++, nr += factor)
-				for(int ic = 0, nc = 0; ic < is; ic++, nc += factor)
-					out[(ch * nsq) + (nr * ns) + nc] = in[(ch * isq) + (ir * is) + ic];
-		return out;
+		final int ns  = is * (++factor) - 1, //Dilated side length.
+				  nsq = ns * ns, //Dilated side length squared.
+				  isq = is * is; //Input side length squared.
+		final double[] out = new double[c * nsq]; //Output tensor.
+		for(int ch = 0; ch < c; ch++) { //For each channel:
+			final int chisq = ch * isq, //Input channel index.
+					  chnsq = ch * nsq; //Dilated channel index.
+			for(int ir = 0; ir < is; ir++) { //For each input row:
+				final int xr = chisq + (ir * is), //Input row index.
+						  nr = chnsq + (ir * factor * ns); //Dilated row index.
+				for(int ic = 0; ic < is; ic++) //For each input column:
+					out[nr + (ic * factor)] = in[xr + ic]; //Record input.
+			}
+		}
+		return out; //Return dilated tensor.
 	}
 	
 	public static double[] transpose(double[] in, int is, int c) {
@@ -45,7 +51,7 @@ public final class Tensor {
 			for(int ir = 0; ir < is; ir++)
 				for(int ic = 0; ic < is; ic++) {
 					final int aidx = chq + (ir * is) + ic,
-							  bidx = chq + (ir * is) + (is - ic);
+							  bidx = chq + (ir * is) + (is - ic - 1);
 					final double t = in[aidx];
 					in[aidx] = in[bidx];
 					in[bidx] = t;
@@ -87,10 +93,10 @@ public final class Tensor {
 	 * @return The flattened output map.
 	 */
 	public static double[] convolve(double[] in, int is, double[] filter, int fs, int c, int step, int pad) {
-		if((is - fs) % step != 0)
+		if((is + 2 * pad - fs) % step != 0) //TODO include pad in check?
 			error("Input and filter size difference is not a factor of the step size.");
 		
-		final int os  = (is - fs) / step,
+		final int os  = (is + 2 * pad - fs) / step,
 				  osq = os * os,
 				  isq = is * is,
 				  fsq = fs * fs;
