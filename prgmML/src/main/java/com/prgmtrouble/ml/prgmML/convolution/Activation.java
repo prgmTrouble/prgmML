@@ -179,17 +179,14 @@ public class Activation implements Serializable, ConvolutionLayer {
 	 */
 	public Parameter<ListOfTypes> backward(Parameter<ListOfTypes> loss, double learningRate, int inputSize, int filterSize, int lossSize, int step, int channels, int pad) {
 		double[] nloss = (double[]) loss.getValues()[0];
-		if(step > 1)
-			nloss = Tensor.dilate(nloss, lossSize, channels, step - 1);
-		final int nis = lossSize + (lossSize - 1) * (step - 1),
-				  ispad = inputSize + 2 * pad; //TODO include padding?
-		double[] df = Tensor.scale(Tensor.convolve((double[]) out.getValues()[0], inputSize, nloss, nis, channels, 1, pad), learningRate);
-		double[] di = new double[inputSize * inputSize * channels];
+		double[] in = (double[]) out.getValues()[0],
+				 di = new double[inputSize * inputSize * channels];
 		for(Filter f : filters) {
-			Tensor.sum(di, Tensor.convolve(nloss, nis, Tensor.rot180(f.get(), filterSize, channels), filterSize, channels, 1, filterSize));
-			f.update(df);
+			final double[][] g = Tensor.backConvolve(nloss, in, inputSize, f.get(), filterSize, channels, step, pad);
+			Tensor.sum(di, g[0]);
+			f.update(Tensor.scale(g[1], learningRate));
 		}
-		nloss = null;
+		nloss = in = null;
 		loss.setValue(di,0);
 		di = null;
 		return act.backward(loss);
