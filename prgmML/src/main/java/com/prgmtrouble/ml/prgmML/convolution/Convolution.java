@@ -2,6 +2,8 @@ package com.prgmtrouble.ml.prgmML.convolution;
 
 import java.io.Serializable;
 
+import org.apache.commons.lang3.ArrayUtils;
+
 import com.prgmtrouble.ml.prgmML.convolution.Pool.PoolingTypes;
 import com.prgmtrouble.ml.prgmML.generic.ListOfTypes;
 import com.prgmtrouble.ml.prgmML.generic.Parameter;
@@ -30,6 +32,8 @@ public class Convolution implements Serializable {
 	
 	/**An array of {@linkplain ConvolutionLayer} objects.*/
 	private final ConvolutionLayer[] network;
+	/**{@linkplain #network}, but in reverse order.*/
+	private final ConvolutionLayer[] reverseNetwork;
 	/**True if {@linkplain #forward(Parameter)} function has been called.*/
 	private boolean forwardExecuted = false;
 	
@@ -41,7 +45,7 @@ public class Convolution implements Serializable {
 	 * @see Activation
 	 * @see Pool
 	 */
-	public Convolution(ConvolutionLayer[] layers) {network = layers;}
+	public Convolution(ConvolutionLayer[] layers) {network = layers; ArrayUtils.reverse(reverseNetwork = ArrayUtils.clone(network));}
 	
 	/**
 	 * Automatically generates a convolutional network with the parameters specified.
@@ -63,13 +67,15 @@ public class Convolution implements Serializable {
 	public Convolution(int[] layerSizes, LayerTypes[] layerTypes, FunctionTypes[] activationTypes,
 				       int[][] activationDimensions, PoolingTypes[] poolTypes, int[] poolingFactors,
 				       int inputChannels, double learningRate) {
-		final int nl = layerTypes.length - 1; //Number of convolution layers.
+		final int nl = layerTypes.length, //Number of convolution layers.
+				 rnl = nl - 1;
 		int aidx = 0, //Activation layer counter.
 			pidx = 0; //Pooling layer counter.
 		network = new ConvolutionLayer[nl];
+		reverseNetwork = new ConvolutionLayer[nl];
 		for(int l = 0; l < nl; l++) { //For each layer:
 			final int si = layerSizes[l], //Size of input.
-					  so = layerSizes[l+1]; //Size of output.
+					  so = layerSizes[l + 1]; //Size of output.
 			switch(layerTypes[l]) {
 			case Activation:
 				{
@@ -82,7 +88,8 @@ public class Convolution implements Serializable {
 					for(int f = 0; f < ct; f++) //For each filter:
 						filters[f] = new Filter(fs, inputChannels, st); //Create new.
 					//Create new activation layer.
-					network[l] = new Activation(filters, activationTypes[aidx++], si, fs, st, inputChannels, ((so - 1) * st + fs - si) / 2, so, learningRate);
+					network[l] = reverseNetwork[rnl - l] 
+							= new Activation(filters, activationTypes[aidx++], si, fs, st, inputChannels, ((so - 1) * st + fs - si) / 2, so, learningRate);
 					inputChannels = ct; //Update number of channels.
 				} break;
 			case Pool:
@@ -95,7 +102,8 @@ public class Convolution implements Serializable {
 					case AvgC	:inputChannels /= f; break;
 					default		:break;
 					}
-					network[l] = new Pool(si, inputChannels, f, t); //Create new pooling layer.
+					network[l] = reverseNetwork[rnl - l] 
+							= new Pool(si, inputChannels, f, t); //Create new pooling layer.
 				} break;
 			default: error("Invalid layer type."); break;
 			}
@@ -130,7 +138,7 @@ public class Convolution implements Serializable {
 		if(!forwardExecuted)
 			error("Feed-forward function has not been called for the current cycle.");
 		forwardExecuted = false;
-		for(ConvolutionLayer layer : network)
+		for(ConvolutionLayer layer : reverseNetwork)
 			loss = layer.backward(loss);
 		return loss;
 	}

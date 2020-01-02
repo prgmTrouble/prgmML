@@ -120,7 +120,7 @@ public class Pool implements Serializable, ConvolutionLayer {
 					for(int pc = 0; pc < p; pc++) { //For each pooled column:
 						final int pcf = pc * f; //Pool factored column index.
 						double a = (t == PoolingTypes.Max)? -Double.MAX_VALUE:0.0; //Compare value.
-						int x = avgType? 0:chsq + (pcf * s) + pcf; //Input index.
+						int x = 0; //Input index.
 						for(int ir = 0; ir < f; ir++) { //For each grid row:
 							final int xr = chsq + (prf + ir) * s; //Input row index.
 							for(int ic = 0; ic < f; ic++) { //For each grid column:
@@ -211,7 +211,7 @@ public class Pool implements Serializable, ConvolutionLayer {
 				}
 			} break;
 		case AvgC:
-			{ //TODO chk
+			{
 				for(int pch = 0; pch < p; pch++) { //For each pooled channel:
 					final int pchidx  = pch * sq, //Pooled channel index.
 							  pfchidx = pch * f; //Pool factored channel index.
@@ -232,7 +232,7 @@ public class Pool implements Serializable, ConvolutionLayer {
 		return out; //Return expanded gradient.
 	}
 	
-	/** TODO use input parameter?
+	/**
 	 * Wraps the output of {@linkplain #backward(double[])} in a {@linkplain Parameter}.
 	 * 
 	 * @param loss A {@linkplain Parameter} containing the gradient tensor with respect
@@ -241,7 +241,7 @@ public class Pool implements Serializable, ConvolutionLayer {
 	 * 		   wrapped in a {@linkplain Parameter}.
 	 */
 	@Override
-	public Parameter<ListOfTypes> backward(Parameter<ListOfTypes> loss) {return new Parameter<ListOfTypes>(outputType, new Object[] {forward((double[]) loss.getValues()[0])});}
+	public Parameter<ListOfTypes> backward(Parameter<ListOfTypes> loss) {return new Parameter<ListOfTypes>(outputType, new Object[] {backward((double[]) loss.getValues()[0])});}
 	
 	/**
 	 * A custom exception which indicates an error in the pool.
