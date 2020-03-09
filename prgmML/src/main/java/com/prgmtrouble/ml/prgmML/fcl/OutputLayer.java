@@ -71,6 +71,11 @@ public class OutputLayer extends Layer {
 	 */
 	public Object[] backward(double learningRate, double prune) {return super.backward(null, learningRate, prune, null);}
 	
+	@Override
+	public Object[] backwardNoLearning(double[] loss, double learningRate, double prune, TreeSet<Integer> toRemove) {return super.backwardNoLearning(null, learningRate, prune, null);}
+	
+	public Object[] backwardNoLearning(double learningRate, double prune) {return super.backwardNoLearning(null, learningRate, prune, null);}
+	
 	/**
 	 * Sets the index of the expected output class as a parameter
 	 * to the output function.

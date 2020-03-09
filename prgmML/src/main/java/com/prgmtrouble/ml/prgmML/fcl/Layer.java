@@ -115,6 +115,31 @@ public class Layer implements Serializable {
 		return new Object[] {nl,src,outParams[1]}; //Return the results.
 	}
 	
+	@SuppressWarnings("unchecked")
+	public Object[] backwardNoLearning(double[] loss, double learningRate, double prune, TreeSet<Integer> toRemove) {
+		final boolean b = data.isOutputVector();
+		if(!b)
+			inParams[1].setValue(loss,0); //Set loss.
+		Object[] wb;
+		//Get gradient with respect to activation function, then get the gradient with respect to the previous outputs.
+		final double[] nl = (double[]) (wb = weights.backwardNoLearning((double[]) (outParams[1] = data.backward(b? null:inParams[1])).getValues()[0], learningRate, prune))[0];
+		TreeSet<Integer> src = null;
+		if(prune >= 0.0) { //If pruning is enabled:
+			src = (TreeSet<Integer>) wb[1]; //Get the set of indices to remove from the weights' backward function.
+			if(toRemove == null)
+				toRemove = new TreeSet<>();
+			for(int i : src) //For each index:
+				if(i < 0) { //If index is a destination:
+					src.remove(i); //Remove index from source set.
+					toRemove.add(-i); //Add inverted index to destination set.
+				}
+			weights.deleteDestination(toRemove); //Delete destinations.
+			weights.deleteSource(src); //Delete sources.
+		}
+		wb = null;
+		return new Object[] {nl,src,outParams[1]}; //Return the results.
+	}
+	
 	/**
 	 * Updates the hyperparameters (if any) according to the gradient
 	 * calculated during backpropagation.

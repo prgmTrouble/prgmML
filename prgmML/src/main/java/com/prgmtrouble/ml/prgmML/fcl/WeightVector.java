@@ -142,6 +142,50 @@ public class WeightVector implements Serializable {
 		return new Object[] {di,toRemove}; //Return gradient and pruning index set.
 	}
 	
+	public Object[] backwardNoLearning(double[] loss, double learningRate, double prune) {
+		final int ds = dstSize();
+		if(loss == null)
+			error("Null Loss.");
+		if(loss.length != ds)
+			error("Invalid Loss.");
+		
+		final int ss = in.length; //Source size.
+		final boolean p = (prune >= 0.0); //Pruning toggle.
+		
+		final boolean[] chkSrc = (p)? new boolean[ss] : null; //Should source be removed?
+		final double[] di = new double[ss]; // dL/dI[src]
+		final TreeSet<Integer> toRemove = (p)? new TreeSet<Integer>() : null; //Set of indices to remove.
+		
+		for(int dst = 0; dst < ds; dst++) { //For each destination:
+			final double l = loss[dst] * learningRate; // dL[dst]/dI'[dst]
+			final HashMap<Integer,Double> w = weights.get(dst); // weight[dst]
+			
+			for(int src = 0; src < ss; src++) { //For each source:
+				if(w.containsKey(src)) { //If the destination contains this source:
+					if(p && !chkSrc[src]) //If pruning enabled and the source check is false:
+						chkSrc[src] = true; //Set this source check to true.
+					
+					final double t = w.get(src); // weight[dst][src]
+					di[src] -= t * l; 					// dL[dst]/dI[src] 		= dL[dst]/dI'[dst] * dI'[dst]/dI[src] 	   = loss[dst] * weight[dst][src]
+					final double nw = t - l * in[src]; //  dL[dst]/dW[dst][src] = dL[dst]/dI'[dst] * dI'[dst]/dW[dst][src] = loss[dst] * in[src]
+					
+					if(!p || Math.abs(nw) > prune) //If pruning disabled or weight is above threshold:
+						w.put(src,t); //Put new value. //TODO nw->t
+					else //Otherwise (pruning is enabled & weight is below threshold):
+						w.remove(src); //Remove value.
+				}
+			}
+			if(p && w.size() == 0) //If this destination does not contain a source:
+				toRemove.add(-dst); //Add destination.
+		}
+		if(p)
+			for(int src = 0; src < ss; src++) //For each source:
+				if(!chkSrc[src]) //If source should be removed:
+					toRemove.add(src); //Add source.
+		
+		return new Object[] {di,toRemove}; //Return gradient and pruning index set.
+	}
+	
 	/**
 	 * Changes the source and/or destinations for weights, usually
 	 * after a pruning operation.

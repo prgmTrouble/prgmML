@@ -2034,7 +2034,7 @@ public class Vector implements Serializable {
 					out[i] *= t * (1.0 - t); // dL/dI = dL/dO * dO/dI = dL/dO * O * (1-O)
 				}
 				
-				setGradientParameter(new Object[] {l});
+				setGradientParameter(new Object[] {out});
 			} catch(ClassCastException e) {
 				e.printStackTrace();
 				error(toString()+": Could not cast parameters.");

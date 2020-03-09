@@ -12,7 +12,7 @@ import com.prgmtrouble.ml.prgmML.math.Tensor;
  * 
  * @author prgmTrouble
  */
-public class GRU implements Serializable {
+public class GRU implements Serializable { //TODO use dot product for weights
 	/***/
 	private static final long serialVersionUID = 1L;
 	
@@ -35,7 +35,7 @@ public class GRU implements Serializable {
 	private static final int idxR = 2;
 	
 	/**Number of elements in cache.*/
-	private static final int nCacheElements = 5;
+	private static final int nCacheElements = 7;
 	/**Variable cache for each time step.*/
 	private double[][][] timeCache;
 	/**Weights indexed <code>[gate][weight]</code>.*/
@@ -76,11 +76,13 @@ public class GRU implements Serializable {
 			weights = new double[nGates][nWeights][];
 			for(int i = 0; i < nGates; i++) {
 				final double[][] Wi = new double[nWeights][];
+				final boolean isR = i == idxR;
 				for(int j = 0; j < nWeights; j++)
-					Wi[j] = gaussian(v,size,r);
+					Wi[j] = (isR && j == idxB)? minusOnes(size):gaussian(v,size,r);
 				weights[i] = Wi;
 			}
 			initOut = gaussian(v,size,r);
+			//initOut = new double[size];
 			initialized = true;
 		}
 		
@@ -90,19 +92,35 @@ public class GRU implements Serializable {
 		
 		for(int t = 0; t < maxT; t++) {
 			final double[][] cache = new double[nCacheElements][];
-			final double[] xt = cache[0] =  in[t],
-						   pO = cache[1] = out[t];
-			double[][] Wn = weights[idxZ];
-			final double[] az = cache[2] = getAlpha(Wn[idxW],xt,Wn[idxU],pO,Wn[idxB]);
-			Wn = weights[idxR];
-			double[] ar = cache[3] = getAlpha(Wn[idxW],xt,Wn[idxU],pO,Wn[idxB]);
-			Wn = weights[idxH];
-			final double[] b  = cache[4] = getBeta(Wn[idxW],xt,Wn[idxU],pO,ar,Wn[idxB]);
-			ar = null;
-			out[t + 1] = getOut(az, pO, b);
+			final double[] x = cache[0] = in[t],
+						  pO = cache[1] = out[t];
+			
+			double[] az = cache[2] = getAlpha(weights[idxZ][idxW], x, weights[idxZ][idxU], pO, weights[idxZ][idxB]),
+					 ar = cache[3] = getAlpha(weights[idxR][idxW], x, weights[idxR][idxU], pO, weights[idxR][idxB]),
+					  b = cache[4] = getBeta (weights[idxH][idxW], x, weights[idxH][idxU], pO, ar, weights[idxH][idxB]);
+			
+			out[t + 1] = 
+				Tensor.sum(
+					Tensor.product(
+						Tensor.dupe(az),
+						x
+					),
+					Tensor.product(
+						oneMinus(Tensor.dupe(az)),
+						b
+					)
+				);
+			
 			timeCache[t] = cache;
 		}
-		return out;
+		
+		forwardExecuted = true;
+		
+		double[][] fOut = new double[maxT][];
+		for(int i = 0; i < maxT; i++)
+			fOut[i] = out[i + 1];
+		
+		return fOut;
 	}
 	
 	/**
@@ -115,118 +133,170 @@ public class GRU implements Serializable {
 	public double[][] backward(double[][] loss, double learningRate) {
 		if(!forwardExecuted)
 			error("Feed-forward function has not been called for the current cycle.");
-		double[]   lo = new double[size];
-		double[][] lx = new double[maxT][];
-		double[] dOdbz = new double[size],
-				 dOdbh = new double[size],
-				 dOdbr = new double[size],
-				 dOdWz = new double[size],
-				 dOdWh = new double[size],
-				 dOdWr = new double[size],
-				 dOdUz = new double[size],
-				 dOdUh = new double[size],
-				 dOdUr = new double[size];
+		
+		double[] dbz = new double[size],
+				 dbr = new double[size],
+				 dbh = new double[size],
+				 dwz = new double[size],
+				 dwr = new double[size],
+				 dwh = new double[size],
+				 duz = new double[size],
+				 dur = new double[size],
+				 duh = new double[size],
+				 dpO = new double[size];
+		double[][] dx = new double[maxT][];
+		
 		for(int t = maxT - 1; t >= 0; t--) {
+			double[] l = Tensor.sum(dpO,loss[t]);
+			
 			double[][] cache = timeCache[t];
-			final double[] l = loss[t],
-						  xt = cache[0],
-						  pO = cache[1],
-						  az = cache[2],
-						  ar = cache[3],
-						  b  = cache[4];
-			cache = timeCache[t] = null;
-			double[] dOdX = new double[size];
 			
-			//Gate Z:
-			double[][] Wn = weights[idxZ];
-			double[] dOdb =
-				Tensor.product(
-					Tensor.product(
-						dOdA(Wn[idxB], pO),
-						l
-					),
-					dAdb(az)
+			double[] c0 = cache[0],
+					 c1 = cache[1], //TODO c1 explodes
+					 c2 = cache[2],
+					 c3 = cache[3],
+					 c4 = cache[4];
+			
+			double[] va = oneMinus(Tensor.dupe(c2));
+			double[] vb = 
+				Tensor.sum(
+					Tensor.scale(Tensor.dupe(c4), -1),
+					c1
 				);
-			Tensor.sum(
-				dOdbz,
-				dOdb
-			);
-			
-			dOdXpO(dOdX, lo, dOdb, Wn[idxW], Wn[idxU]);
-			
-			dOdUW(dOdUz, dOdWz, xt, pO, dOdb);
-			
-			//Gate H
-			Wn = weights[idxH];
-			dOdb =
+			double[] v1 =
 				Tensor.product(
-					Tensor.dupe(l),
 					Tensor.product(
-						oneMinus(
+						Tensor.dupe(c2),
+						va
+					),
+					vb
+				);
+			double[] v2 =
+				Tensor.product(
+					oneMinus(
+						Tensor.product(
+							Tensor.dupe(c4),
+							c4
+						)
+					),
+					va
+				);
+			double[] v3 = 
+				Tensor.product(
+					oneMinus(Tensor.dupe(c3)),
+					c3
+				);
+			double[] v4 =
+				Tensor.product(
+					Tensor.dupe(c3),
+					weights[idxH][idxU]
+				);
+			double[] v5 =
+				Tensor.product(
+					Tensor.product(
+						Tensor.dupe(v2),
+						v3
+					),
+					v4
+				);
+			
+			double[] dhdiz = Tensor.product(Tensor.dupe(l), v1);
+			//double[][] dwxz = Tensor.dDot(weights[idxZ][idxW], c0, Tensor.dupe(l), nr, nc) //TODO size
+			
+			
+			update(dbz,v1,l);
+			update(dbr,v5,l);
+			update(dbh,v2,l);
+			
+			update(dwz,Tensor.product(Tensor.dupe(v1),c0),l);
+			update(dwr,Tensor.product(Tensor.dupe(v5),c0),l);
+			update(dwh,Tensor.product(Tensor.dupe(v2),c0),l);
+			
+			update(duz,Tensor.product(Tensor.dupe(v1),c1),l);
+			update(dur,Tensor.product(Tensor.dupe(v5),c1),l);
+			update(duh,Tensor.product(Tensor.product(Tensor.dupe(v2),c3),c1),l);
+			
+			dpO =
+				Tensor.product(
+					Tensor.sum(
+						Tensor.sum(
+							Tensor.sum(
+								Tensor.product(
+									Tensor.dupe(vb),
+									weights[idxZ][idxU]
+								),
+								c2
+							),
 							Tensor.product(
-								Tensor.dupe(b),
-								b
+								Tensor.product(
+									Tensor.dupe(v2),
+									c3
+								),
+								weights[idxH][idxU]
 							)
 						),
-						az
-					)
-				);
-			Tensor.sum(
-				dOdbh,
-				dOdb
-			);
-			
-			dOdXpO(dOdX, lo, dOdb, Wn[idxW], Tensor.product(Tensor.dupe(Wn[idxU]),ar));
-			double[] Ut = Tensor.dupe(Wn[idxU]);
-			dOdUW(dOdUh, dOdWh, xt, Tensor.product(Tensor.dupe(pO),ar), dOdb);
-			
-			//Gate R
-			Wn = weights[idxR];
-			Tensor.product(
-				dOdb,
-				Tensor.product(
-					Ut,
-					Tensor.product(
-						pO,
 						Tensor.product(
-							dOdA(Wn[idxB],pO),
-							dAdb(ar)
+							Tensor.dupe(v5),
+							weights[idxR][idxU]
 						)
-					)
-				)
-			);
-			Ut = null;
-			Tensor.sum(
-				dOdbr,
-				dOdb
-			);
+					),
+					l
+				);
 			
-			dOdXpO(dOdX, lo, dOdb, Wn[idxW], Wn[idxU]);
-			Wn = null;
-			
-			lx[t] = dOdX;
-			dOdX = null;
-			
-			dOdUW(dOdUr, dOdWr, xt, pO, dOdb);
+			dx[t] =
+				Tensor.product(
+					Tensor.sum(
+						Tensor.sum(
+							Tensor.product(
+								Tensor.dupe(v1),
+								weights[idxZ][idxU]
+							),
+							Tensor.product(
+								Tensor.dupe(v2),
+								weights[idxH][idxW]
+							)
+						),
+						Tensor.product(
+							Tensor.dupe(v5),
+							weights[idxR][idxW]
+						)
+					),
+					l
+				);
 		}
 		
-		double[][][] dw = new double[][][] {new double[][] {dOdWz,dOdUz,dOdbz},
-											new double[][] {dOdWh,dOdUh,dOdbh},
-											new double[][] {dOdWr,dOdUr,dOdbr}};
-		dOdbz = dOdbh = dOdbr =
-		dOdWz = dOdWh = dOdWr =
-		dOdUz = dOdUh = dOdUr = null;
+		update(weights[idxZ][idxB],dbz,learningRate);
+		update(weights[idxR][idxB],dbr,learningRate);
+		update(weights[idxH][idxB],dbh,learningRate);
 		
-		for(int g = 0; g < nGates; g++) {
-			final double[][] gate = weights[g],
-							 grad = dw[g];
-			for(int w = 0; w < nWeights; w++)
-				update(gate[w],grad[w],learningRate);
-		}
-		dw = null;
+		update(weights[idxZ][idxW],dwz,learningRate);
+		update(weights[idxR][idxW],dwr,learningRate);
+		update(weights[idxH][idxW],dwh,learningRate);
 		
-		update(initOut,lo,learningRate);
-		return lx;
+		update(weights[idxZ][idxU],duz,learningRate);
+		update(weights[idxR][idxU],dur,learningRate);
+		update(weights[idxH][idxU],duh,learningRate);
+		
+		update(initOut,dpO,learningRate); //TODO dpO explodes
+		
+		return dx;
+	}
+	
+	private static void update(double[] a, double[] b, double learningRate) {
+		Tensor.sum(
+			a,
+			Tensor.scale(Tensor.dupe(b), learningRate)
+		);
+	}
+	
+	private static void update(double[] a, double[] b, double[] l) {
+		Tensor.sum(
+			a,
+			Tensor.product(
+				Tensor.dupe(b),
+				l
+			)
+		);
 	}
 	
 	/**
@@ -241,6 +311,13 @@ public class GRU implements Serializable {
 		final double[] out = new double[size];
 		for(int i = 0; i < size; i++)
 			out[i] = r.nextGaussian() * v;
+		return out;
+	}
+	
+	private static double[] minusOnes(int size) {
+		final double[] out = new double[size];
+		for(int i = 0; i < size; i++)
+			out[i] = -1.0;
 		return out;
 	}
 	
@@ -295,10 +372,10 @@ public class GRU implements Serializable {
 					Tensor.sum(
 						Tensor.product(
 							Tensor.product(
-								Tensor.dupe(ar),
-								U
+								Tensor.dupe(pO),
+								ar
 							),
-							pO
+							U
 						),
 						b
 					)
@@ -329,115 +406,13 @@ public class GRU implements Serializable {
 	}
 	
 	/**
-	 * Calculates the gradient of an Alpha gate with respect to
-	 * the bias vector.
-	 * <br>
-	 * Since the gradient of the weighted input vector with respect
-	 * to the bias vector is always <code>1.0</code>, this value
-	 * is exactly the same as the gradient of the Alpha gate with
-	 * respect to the weighted input vector and therefore may be
-	 * used interchangeably.
-	 * 
-	 * @param a Output of Alpha gate.
-	 * @return The gradient of the Alpha gate with respect to the
-	 * 		   bias vector.
-	 */
-	private static double[] dAdb(double[] a) {
-		return // dA/dI = A(I)*(A(I)-1)
-			Tensor.product(
-				minusOne(a),
-				a
-			);
-	}
-	
-	/**
-	 * Calculates the gradient of the output with respect to
-	 * the Alpha gate output.
-	 * 
-	 * @param b Bias vector.
-	 * @param pO Previous output vector.
-	 * @return Gradient of the output with respect to the Alpha
-	 * 		   gate output.
-	 */
-	private static double[] dOdA(double[] b, double[] pO) {
-		return // dO/dA = b - pO
-			Tensor.sum(
-				Tensor.scale(Tensor.dupe(pO), -1.0),
-				b
-			);
-	}
-	
-	/**
-	 * Calculates the gradient of the output with respect to the
-	 * input and previous output vectors in-place.
-	 * 
-	 * @param dOdX Gradient of the output vector with respect to
-	 * 			   the input vector.
-	 * @param dOdpO Gradient of the output vector with respect to
-	 * 				the previous output vector.
-	 * @param dOdb Gradient of the output vector with respect to
-	 * 			   the bias vector.
-	 * @param W Input weight vector.
-	 * @param U Previous output weight vector.
-	 */
-	private static void dOdXpO(double[] dOdX, double[] dOdpO, double[] dOdb, double[] W, double[] U) {
-		Tensor.sum(
-			dOdX,
-			Tensor.product(
-				Tensor.dupe(W),
-				dOdb
-			)
-		);
-		
-		Tensor.sum(
-			dOdpO,
-			Tensor.product(
-				Tensor.dupe(U),
-				dOdb
-			)
-		);
-	}
-	
-	/**
-	 * Calculates the gradient of the output with respect to the
-	 * input and previous output weight vectors in-place.
-	 * 
-	 * @param dU Gradient of the output with respect to the
-	 * 			 previous output weight vector.
-	 * @param dW Gradient of the output with respect to the
-	 * 			 input weight vector.
-	 * @param xt Input vector.
-	 * @param pO Previous output vector.
-	 * @param dOdb Gradient of the output with respect to the
-	 * 			   bias vector.
-	 */
-	private static void dOdUW(double[] dU, double[] dW, double[] xt, double[] pO, double[] dOdb) {
-		Tensor.sum(
-			dW,
-			Tensor.product(
-				Tensor.dupe(dOdb),
-				xt
-			)
-		);
-		
-		Tensor.sum(
-			dU,
-			Tensor.product(
-				Tensor.dupe(dOdb),
-				pO
-			)
-		);
-	}
-	
-	/**
 	 * @param in Input vector.
-	 * @return <code>1.0 - in</code>
+	 * @return <code>in = 1.0 - in</code>
 	 */
 	private static double[] oneMinus(double[] in) {
-		final double[] out = Tensor.dupe(in);
-		for(int o = 0; o < out.length; o++)
-			out[o] = 1.0 - out[o];
-		return out;
+		for(int o = 0; o < in.length; o++)
+			in[o] = 1.0 - in[o];
+		return in;
 	}
 	
 	/**
@@ -451,41 +426,25 @@ public class GRU implements Serializable {
 	}
 	
 	/**
-	 * Updates a vector using SGD in-place.
-	 * 
-	 * @param in Vector to update.
-	 * @param loss Gradient of the output with respect to <code>in</code>.
-	 * @param learningRate Learning rate.
-	 */
-	private static void update(double[] in, double[] loss, double learningRate) {
-		Tensor.sum(
-			in,
-			Tensor.scale(Tensor.dupe(loss), -learningRate)
-		);
-	}
-	
-	/**
 	 * @param x Input vector.
-	 * @return The output of the sigmoid function with input <code>x</code>.
+	 * @return The output of the sigmoid function with input <code>x</code> (in-place).
 	 */
 	private static double[] sigmoid(double[] x) {
 		final int il = x.length;
-		final double[] out = new double[il];
 		for(int i = 0; i < il; i++)
-			out[i] = 1.0 / (1.0 + Math.exp(x[i]));
-		return out;
+			x[i] = 1.0 / (1.0 + Math.exp(-x[i]));
+		return x;
 	}
 	
 	/**
 	 * @param x Input vector.
-	 * @return The output of the hyperbolic tangent function with input <code>x</code>.
+	 * @return The output of the hyperbolic tangent function with input <code>x</code> (in-place).
 	 */
 	private static double[] tanH(double[] x) {
 		final int il = x.length;
-		final double[] out = new double[il];
 		for(int i = 0; i < il; i++)
-			out[i] = Math.tanh(x[i]);
-		return out;
+			x[i] = Math.tanh(x[i]);
+		return x;
 	}
 	
 	/**

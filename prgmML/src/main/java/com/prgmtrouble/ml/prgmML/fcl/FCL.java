@@ -159,6 +159,26 @@ public class FCL implements Serializable {
 		return (double[]) bkwd[0]; //Return gradient with respect to input vector.
 	}
 	
+	@SuppressWarnings("unchecked")
+	public double[] backwardNoLearning(double[] learningRate, double[] prune, boolean[] learnParameters) {
+		final boolean b = learnParameters == null; //True if parameter learning is specified.
+		final int hl = (hidden != null)? hidden.length:0;
+		
+		Object[] bkwd = last.backwardNoLearning(learningRate[hl], prune[hl]); //Perform backpropagation on output layer.
+		if(!b && learnParameters.length > hl && learnParameters[hl]) //If output layer should update hyperparameters:
+			last.learnParameters(learningRate[hl]); //Update.
+		
+		for(int l = hl-1; l >= 0; l--) { //For each hidden layer starting from last:
+			final Layer L = hidden[l];
+			final double lr = learningRate[l];
+			bkwd = L.backwardNoLearning((double[]) bkwd[0], lr, prune[l], (TreeSet<Integer>) bkwd[1]); //Perform backpropagation.
+			if(!b && learnParameters.length > l && learnParameters[l]) //If output layer should update hyperparameters:
+				L.learnParameters(lr); //Update.
+		}
+		
+		return (double[]) bkwd[0]; //Return gradient with respect to input vector.
+	}
+	
 	/**
 	 * A custom exception which indicates an error in the FCL.
 	 * 
